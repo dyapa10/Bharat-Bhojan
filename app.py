@@ -5,15 +5,18 @@ from typing import Optional
 
 # Hugging Face API configuration
 HF_API_URL = "https://api-inference.huggingface.co/models/microsoft/DialoGPT-medium"
-# You'll need to get your API key from https://huggingface.co/settings/tokens
-HF_API_KEY = st.secrets.get("HF_API_KEY", "")  # Store in Streamlit secrets
+# API key will be stored securely in Streamlit Cloud secrets
+HF_API_KEY = st.secrets.get("HF_API_KEY", "")
 
-def query_huggingface_chat(prompt: str, api_key: str) -> Optional[str]:
+def query_huggingface_chat(prompt: str, api_key: str = None) -> Optional[str]:
     """Query Hugging Face chat model"""
-    if not api_key:
-        return "Please add your Hugging Face API key to use the chat feature."
+    # Use provided API key or fall back to secrets
+    key_to_use = api_key or st.secrets.get("HF_API_KEY", "")
     
-    headers = {"Authorization": f"Bearer {api_key}"}
+    if not key_to_use:
+        return "API key not configured. Please add it in Streamlit Cloud secrets or enter manually."
+    
+    headers = {"Authorization": f"Bearer {key_to_use}"}
     payload = {
         "inputs": prompt,
         "parameters": {
@@ -79,11 +82,31 @@ st.set_page_config(page_title="Indian Food Explorer", page_icon="🇮🇳", layo
 st.title("🇮🇳 Regional Indian Food Explorer with AI Chat")
 st.write("Discover staple foods, famous dishes, and iconic restaurants across India's diverse regions - now with AI-powered food recommendations!")
 
-# Sidebar for API key
+# Sidebar for API key (optional - can also use secrets)
 with st.sidebar:
     st.header("🤖 AI Chat Settings")
-    api_key = st.text_input("Hugging Face API Key", type="password", 
-                           help="Get your free API key from https://huggingface.co/settings/tokens")
+    
+    # Check if API key is already in secrets
+    has_secret_key = bool(st.secrets.get("HF_API_KEY", ""))
+    
+    if has_secret_key:
+        st.success("✅ API key configured in Streamlit secrets")
+        api_key = st.secrets["HF_API_KEY"]
+        show_input = st.checkbox("Override with manual key")
+        if show_input:
+            api_key = st.text_input("Manual Hugging Face API Key", type="password")
+    else:
+        st.info("💡 Add HF_API_KEY to Streamlit secrets for permanent storage")
+        api_key = st.text_input("Hugging Face API Key", type="password", 
+                               help="Get your free API key from https://huggingface.co/settings/tokens")
+    
+    st.markdown("---")
+    st.markdown("**How to add to Streamlit secrets:**")
+    st.code('''
+# In your Streamlit Cloud app settings:
+[secrets]
+HF_API_KEY = "your_actual_api_key_here"
+    ''')
     st.info("💡 The AI can help with recipe suggestions, cooking tips, and food recommendations!")
 
 # Main content in two columns
@@ -137,8 +160,11 @@ with col2:
                                  placeholder="e.g., How do I make authentic biryani? What spices go with fish curry?")
     
     if st.button("Ask AI") and user_question:
-        if not api_key:
-            st.error("Please enter your Hugging Face API key in the sidebar to use the AI chat feature.")
+        # Use API key from secrets or manual input
+        current_api_key = api_key if 'api_key' in locals() else st.secrets.get("HF_API_KEY", "")
+        
+        if not current_api_key:
+            st.error("Please configure your Hugging Face API key in Streamlit secrets or enter it manually in the sidebar.")
         else:
             # Create context-aware prompt
             context = f"You are an expert on Indian cuisine. "
@@ -149,7 +175,7 @@ with col2:
             full_prompt = f"{context}\n\nUser question: {user_question}\n\nProvide a helpful, informative response about Indian food:"
             
             with st.spinner("AI is thinking..."):
-                ai_response = query_huggingface_chat(full_prompt, api_key)
+                ai_response = query_huggingface_chat(full_prompt, current_api_key)
             
             # Add to chat history
             st.session_state.chat_history.append((user_question, ai_response))
