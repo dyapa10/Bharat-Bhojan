@@ -25,64 +25,62 @@ AVAILABLE_MODELS = {
 
 def get_api_token() -> Optional[str]:
     """
-    Get API token from Streamlit secrets with multiple fallback options
+    Get API token from Streamlit Cloud app settings only
     """
     try:
-        # Primary: Check for HUGGINGFACE_API_TOKEN
-        if "HUGGINGFACE_API_TOKEN" in st.secrets:
+        # Check for HUGGINGFACE_API_TOKEN in Streamlit secrets (Cloud settings)
+        if hasattr(st, 'secrets') and "HUGGINGFACE_API_TOKEN" in st.secrets:
             return st.secrets["HUGGINGFACE_API_TOKEN"]
         
-        # Fallback 1: Check for HF_TOKEN (common alternative)
-        if "HF_TOKEN" in st.secrets:
+        # Fallback: Check for HF_TOKEN 
+        if hasattr(st, 'secrets') and "HF_TOKEN" in st.secrets:
             return st.secrets["HF_TOKEN"]
-        
-        # Fallback 2: Check for API_TOKEN (generic)
-        if "API_TOKEN" in st.secrets:
-            return st.secrets["API_TOKEN"]
-        
-        # Fallback 3: Check nested secrets structure
-        if "huggingface" in st.secrets and "api_token" in st.secrets["huggingface"]:
-            return st.secrets["huggingface"]["api_token"]
         
         return None
         
     except Exception as e:
-        st.error(f"Error accessing secrets: {str(e)}")
+        st.error(f"Error accessing app settings: {str(e)}")
         return None
 
-def display_token_setup_instructions():
-    """Display setup instructions for API token"""
+def display_cloud_setup_instructions():
+    """Display setup instructions for Streamlit Cloud only"""
     st.error("❌ Hugging Face API Token not found in app settings")
     
-    with st.expander("📖 Setup Instructions", expanded=True):
+    with st.expander("📖 Streamlit Cloud Setup Instructions", expanded=True):
         st.markdown("""
-        ### For Local Development:
-        1. Create a `.streamlit/secrets.toml` file in your project root
-        2. Add your token:
+        ### How to Add Your API Token in Streamlit Cloud:
+        
+        1. **Go to your Streamlit Cloud dashboard**
+        2. **Find your deployed app** and click on it
+        3. **Click on the ⚙️ Settings button** (usually in the top right)
+        4. **Navigate to the "Secrets" tab**
+        5. **Add your token** in the text area:
+        
         ```toml
-        HUGGINGFACE_API_TOKEN = "your_token_here"
+        HUGGINGFACE_API_TOKEN = "your_actual_token_here"
         ```
         
-        ### For Streamlit Cloud:
-        1. Go to your app's **Settings** → **Secrets**
-        2. Add the following:
+        ### How to Get Your Hugging Face Token:
+        1. Go to [Hugging Face Settings](https://huggingface.co/settings/tokens)
+        2. Click **"New token"**
+        3. Give it a name (e.g., "Streamlit Chatbot")
+        4. Select **"Read"** permissions
+        5. Click **"Generate a token"**
+        6. **Copy the token** and paste it in your Streamlit Cloud app settings
+        
+        ### ⚠️ Important Notes:
+        - Replace `"your_actual_token_here"` with your real token (keep the quotes)
+        - After saving, your app will automatically restart
+        - The token should start with `hf_`
+        
+        ### Alternative Token Name:
+        You can also use `HF_TOKEN` instead of `HUGGINGFACE_API_TOKEN`:
         ```toml
-        HUGGINGFACE_API_TOKEN = "your_token_here"
+        HF_TOKEN = "your_actual_token_here"
         ```
-        
-        ### Alternative Token Names (any of these will work):
-        - `HUGGINGFACE_API_TOKEN`
-        - `HF_TOKEN`
-        - `API_TOKEN`
-        - Or nested: `[huggingface]` → `api_token = "your_token"`
-        
-        ### How to Get Your Token:
-        1. Go to [Hugging Face](https://huggingface.co/settings/tokens)
-        2. Create a new token with **Read** permissions
-        3. Copy and paste it into your secrets
         """)
     
-    st.info("💡 **Tip**: After adding your token, refresh the page or restart the app.")
+    st.info("💡 **Tip**: After adding your token in Streamlit Cloud settings, the app will restart automatically.")
 
 class HuggingFaceChatbot:
     def __init__(self, api_token: str):
@@ -140,7 +138,7 @@ class HuggingFaceChatbot:
             
             # Handle specific error cases
             if response.status_code == 401:
-                st.error("❌ Invalid API token. Please check your token in app settings.")
+                st.error("❌ Invalid API token. Please check your token in Streamlit Cloud app settings.")
                 return None
             elif response.status_code == 403:
                 st.error("❌ Access forbidden. Your token may not have the required permissions.")
@@ -198,11 +196,11 @@ def main():
     st.title("🤖 AI Chatbot with Hugging Face")
     st.markdown("Chat with various AI models powered by Hugging Face!")
     
-    # Get API token
+    # Get API token from Streamlit Cloud settings
     api_token = get_api_token()
     
     if not api_token:
-        display_token_setup_instructions()
+        display_cloud_setup_instructions()
         st.stop()
     
     # Initialize chatbot
@@ -224,6 +222,7 @@ def main():
                 else:
                     st.error("❌ API Token validation failed")
                     st.session_state.token_validated = False
+                    st.error("Please check your token in Streamlit Cloud app settings.")
         elif st.session_state.token_validated:
             st.success("✅ API Token is valid")
         
@@ -261,10 +260,21 @@ def main():
         # Model info
         st.subheader("ℹ️ Current Model")
         st.info(f"**{AVAILABLE_MODELS[selected_model_key]}**\n\n`{selected_model_key}`")
+        
+        # Quick setup reminder
+        with st.expander("🔧 Setup Reminder"):
+            st.markdown("""
+            **Token Location**: Streamlit Cloud App Settings → Secrets
+            
+            **Format**:
+            ```toml
+            HUGGINGFACE_API_TOKEN = "hf_your_token_here"
+            ```
+            """)
     
     # Only show chat interface if token is validated
     if not st.session_state.token_validated:
-        st.warning("⚠️ Please validate your API token in the sidebar before chatting.")
+        st.warning("⚠️ Please validate your API token using the Test Connection button in the sidebar.")
         return
     
     # Main chat interface
