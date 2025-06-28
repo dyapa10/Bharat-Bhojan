@@ -23,11 +23,92 @@ AVAILABLE_MODELS = {
     "google/flan-t5-large": "Flan-T5 Large"
 }
 
+def get_api_token() -> Optional[str]:
+    """
+    Get API token from Streamlit secrets with multiple fallback options
+    """
+    try:
+        # Primary: Check for HUGGINGFACE_API_TOKEN
+        if "HUGGINGFACE_API_TOKEN" in st.secrets:
+            return st.secrets["HUGGINGFACE_API_TOKEN"]
+        
+        # Fallback 1: Check for HF_TOKEN (common alternative)
+        if "HF_TOKEN" in st.secrets:
+            return st.secrets["HF_TOKEN"]
+        
+        # Fallback 2: Check for API_TOKEN (generic)
+        if "API_TOKEN" in st.secrets:
+            return st.secrets["API_TOKEN"]
+        
+        # Fallback 3: Check nested secrets structure
+        if "huggingface" in st.secrets and "api_token" in st.secrets["huggingface"]:
+            return st.secrets["huggingface"]["api_token"]
+        
+        return None
+        
+    except Exception as e:
+        st.error(f"Error accessing secrets: {str(e)}")
+        return None
+
+def display_token_setup_instructions():
+    """Display setup instructions for API token"""
+    st.error("❌ Hugging Face API Token not found in app settings")
+    
+    with st.expander("📖 Setup Instructions", expanded=True):
+        st.markdown("""
+        ### For Local Development:
+        1. Create a `.streamlit/secrets.toml` file in your project root
+        2. Add your token:
+        ```toml
+        HUGGINGFACE_API_TOKEN = "your_token_here"
+        ```
+        
+        ### For Streamlit Cloud:
+        1. Go to your app's **Settings** → **Secrets**
+        2. Add the following:
+        ```toml
+        HUGGINGFACE_API_TOKEN = "your_token_here"
+        ```
+        
+        ### Alternative Token Names (any of these will work):
+        - `HUGGINGFACE_API_TOKEN`
+        - `HF_TOKEN`
+        - `API_TOKEN`
+        - Or nested: `[huggingface]` → `api_token = "your_token"`
+        
+        ### How to Get Your Token:
+        1. Go to [Hugging Face](https://huggingface.co/settings/tokens)
+        2. Create a new token with **Read** permissions
+        3. Copy and paste it into your secrets
+        """)
+    
+    st.info("💡 **Tip**: After adding your token, refresh the page or restart the app.")
+
 class HuggingFaceChatbot:
     def __init__(self, api_token: str):
         self.api_token = api_token
         self.headers = {"Authorization": f"Bearer {api_token}"}
         self.base_url = "https://api-inference.huggingface.co/models/"
+    
+    def test_connection(self) -> bool:
+        """Test if the API token is valid"""
+        try:
+            # Test with a simple model
+            test_url = f"{self.base_url}gpt2"
+            test_payload = {"inputs": "test"}
+            
+            response = requests.post(
+                test_url, 
+                headers=self.headers, 
+                json=test_payload,
+                timeout=10
+            )
+            
+            # Token is valid if we don't get a 401/403
+            return response.status_code not in [401, 403]
+            
+        except Exception:
+            return False
     
     def generate_response(self, model_name: str, prompt: str, max_length: int = 150, temperature: float = 0.7) -> Optional[str]:
         """Generate response from Hugging Face model"""
@@ -55,9 +136,20 @@ class HuggingFaceChatbot:
             }
         
         try:
-            response = requests.post(url, headers=self.headers, json=payload)
-            response.raise_for_status()
+            response = requests.post(url, headers=self.headers, json=payload, timeout=30)
             
+            # Handle specific error cases
+            if response.status_code == 401:
+                st.error("❌ Invalid API token. Please check your token in app settings.")
+                return None
+            elif response.status_code == 403:
+                st.error("❌ Access forbidden. Your token may not have the required permissions.")
+                return None
+            elif response.status_code == 503:
+                st.warning("⏳ Model is loading. Please try again in a moment.")
+                return None
+            
+            response.raise_for_status()
             result = response.json()
             
             # Handle different response formats
@@ -73,6 +165,9 @@ class HuggingFaceChatbot:
             
             return "Sorry, I couldn't generate a response."
             
+        except requests.exceptions.Timeout:
+            st.error("⏰ Request timed out. Please try again.")
+            return None
         except requests.exceptions.RequestException as e:
             st.error(f"API request failed: {str(e)}")
             return None
@@ -86,6 +181,8 @@ def initialize_session_state():
         st.session_state.messages = []
     if "selected_model" not in st.session_state:
         st.session_state.selected_model = list(AVAILABLE_MODELS.keys())[0]
+    if "token_validated" not in st.session_state:
+        st.session_state.token_validated = False
 
 def display_chat_messages():
     """Display chat messages"""
@@ -101,20 +198,38 @@ def main():
     st.title("🤖 AI Chatbot with Hugging Face")
     st.markdown("Chat with various AI models powered by Hugging Face!")
     
+    # Get API token
+    api_token = get_api_token()
+    
+    if not api_token:
+        display_token_setup_instructions()
+        st.stop()
+    
+    # Initialize chatbot
+    chatbot = HuggingFaceChatbot(api_token)
+    
     # Sidebar configuration
     with st.sidebar:
         st.header("⚙️ Configuration")
         
-        # API Token input
-        api_token = st.text_input(
-            "Hugging Face API Token",
-            type="password",
-            help="Get your token from https://huggingface.co/settings/tokens"
-        )
+        # Token status
+        st.subheader("🔐 API Status")
         
-        if not api_token:
-            st.warning("Please enter your Hugging Face API token to continue.")
-            st.stop()
+        # Validate token on first run or when explicitly requested
+        if not st.session_state.token_validated or st.button("🔍 Test Connection"):
+            with st.spinner("Validating token..."):
+                if chatbot.test_connection():
+                    st.success("✅ API Token is valid")
+                    st.session_state.token_validated = True
+                else:
+                    st.error("❌ API Token validation failed")
+                    st.session_state.token_validated = False
+        elif st.session_state.token_validated:
+            st.success("✅ API Token is valid")
+        
+        # Show masked token for verification
+        masked_token = f"{api_token[:8]}...{api_token[-4:]}" if len(api_token) > 12 else "***"
+        st.code(f"Token: {masked_token}")
         
         st.divider()
         
@@ -147,6 +262,11 @@ def main():
         st.subheader("ℹ️ Current Model")
         st.info(f"**{AVAILABLE_MODELS[selected_model_key]}**\n\n`{selected_model_key}`")
     
+    # Only show chat interface if token is validated
+    if not st.session_state.token_validated:
+        st.warning("⚠️ Please validate your API token in the sidebar before chatting.")
+        return
+    
     # Main chat interface
     col1, col2 = st.columns([3, 1])
     
@@ -166,8 +286,6 @@ def main():
             # Generate and display assistant response
             with st.chat_message("assistant"):
                 with st.spinner("Thinking..."):
-                    chatbot = HuggingFaceChatbot(api_token)
-                    
                     # Format prompt for better context
                     if len(st.session_state.messages) > 1:
                         # Include some conversation context
