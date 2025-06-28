@@ -1,400 +1,219 @@
 import streamlit as st
 import requests
 import json
-from typing import Optional
+from typing import Dict, List, Optional
 
-# Multiple model configurations
-MODELS = {
-    "Qwen3-0.6B": {
-        "url": "https://api-inference.huggingface.co/models/Qwen/Qwen3-0.6B",
-        "description": "Latest Qwen model - excellent for multilingual chat and reasoning",
-        "max_length": 512,
-        "temperature": 0.7
-    },
-    "Qwen2.5-7B-Instruct": {
-        "url": "https://api-inference.huggingface.co/models/Qwen/Qwen2.5-7B-Instruct",
-        "description": "Instruction-tuned Qwen model - great for following complex instructions",
-        "max_length": 1024,
-        "temperature": 0.6
-    },
-    "Llama-3.1-8B-Instruct": {
-        "url": "https://api-inference.huggingface.co/models/meta-llama/Llama-3.1-8B-Instruct",
-        "description": "Meta's Llama 3.1 - excellent for chat and multilingual tasks",
-        "max_length": 1024,
-        "temperature": 0.7
-    },
-    "Mistral-7B-Instruct": {
-        "url": "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.3",
-        "description": "Mistral's efficient model - fast and reliable for conversations",
-        "max_length": 512,
-        "temperature": 0.7
-    },
-    "CodeLlama-7B-Instruct": {
-        "url": "https://api-inference.huggingface.co/models/codellama/CodeLlama-7b-Instruct-hf",
-        "description": "Code-specialized model - great for recipe formatting and structured responses",
-        "max_length": 1024,
-        "temperature": 0.5
-    },
-    "Zephyr-7B-Beta": {
-        "url": "https://api-inference.huggingface.co/models/HuggingFaceH4/zephyr-7b-beta",
-        "description": "Optimized for helpful, harmless conversations about various topics",
-        "max_length": 512,
-        "temperature": 0.7
-    },
-    "Gemma-2B-Instruct": {
-        "url": "https://api-inference.huggingface.co/models/google/gemma-2b-it",
-        "description": "Google's lightweight model - fast responses for food queries",
-        "max_length": 512,
-        "temperature": 0.8
-    }
+# Page configuration
+st.set_page_config(
+    page_title="AI Chatbot",
+    page_icon="🤖",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Available models
+AVAILABLE_MODELS = {
+    "Qwen/Qwen2-1.5B-Instruct": "Qwen 2 1.5B",
+    "Qwen/Qwen2-7B-Instruct": "Qwen 2 7B", 
+    "microsoft/DialoGPT-medium": "DialoGPT Medium",
+    "microsoft/DialoGPT-large": "DialoGPT Large",
+    "facebook/blenderbot-400M-distill": "BlenderBot 400M",
+    "facebook/blenderbot-1B-distill": "BlenderBot 1B",
+    "google/flan-t5-base": "Flan-T5 Base",
+    "google/flan-t5-large": "Flan-T5 Large"
 }
 
-def query_huggingface_model(prompt: str, model_name: str) -> Optional[str]:
-    """Query any Hugging Face model using API key from Streamlit secrets"""
-    try:
-        # Read API key from Streamlit Cloud secrets
-        api_key = st.secrets["HF_API_KEY"]
-    except KeyError:
-        return "API key not found in Streamlit secrets. Please add 'HF_API_KEY' to your app secrets."
-    except Exception as e:
-        return f"Error accessing secrets: {str(e)}"
+class HuggingFaceChatbot:
+    def __init__(self, api_token: str):
+        self.api_token = api_token
+        self.headers = {"Authorization": f"Bearer {api_token}"}
+        self.base_url = "https://api-inference.huggingface.co/models/"
     
-    model_config = MODELS.get(model_name, MODELS["Qwen3-0.6B"])
-    headers = {"Authorization": f"Bearer {api_key}"}
-    
-    # Adjust payload based on model type
-    if "Qwen" in model_name or "Llama" in model_name or "Mistral" in model_name:
-        payload = {
-            "inputs": prompt,
-            "parameters": {
-                "max_new_tokens": model_config["max_length"],
-                "temperature": model_config["temperature"],
-                "do_sample": True,
-                "return_full_text": False
+    def generate_response(self, model_name: str, prompt: str, max_length: int = 150, temperature: float = 0.7) -> Optional[str]:
+        """Generate response from Hugging Face model"""
+        url = f"{self.base_url}{model_name}"
+        
+        # Prepare payload based on model type
+        if "qwen" in model_name.lower() or "flan" in model_name.lower():
+            payload = {
+                "inputs": prompt,
+                "parameters": {
+                    "max_new_tokens": max_length,
+                    "temperature": temperature,
+                    "do_sample": True,
+                    "return_full_text": False
+                }
             }
-        }
-    else:
-        payload = {
-            "inputs": prompt,
-            "parameters": {
-                "max_length": model_config["max_length"],
-                "temperature": model_config["temperature"],
-                "do_sample": True
+        else:
+            payload = {
+                "inputs": prompt,
+                "parameters": {
+                    "max_length": max_length,
+                    "temperature": temperature,
+                    "do_sample": True
+                }
             }
-        }
-    
-    try:
-        response = requests.post(model_config["url"], headers=headers, json=payload, timeout=30)
-        if response.status_code == 200:
+        
+        try:
+            response = requests.post(url, headers=self.headers, json=payload)
+            response.raise_for_status()
+            
             result = response.json()
+            
+            # Handle different response formats
             if isinstance(result, list) and len(result) > 0:
-                # Handle different response formats
                 if "generated_text" in result[0]:
-                    return result[0]["generated_text"].strip()
+                    generated_text = result[0]["generated_text"]
+                    # Remove the original prompt if it's included
+                    if generated_text.startswith(prompt):
+                        generated_text = generated_text[len(prompt):].strip()
+                    return generated_text
                 elif "text" in result[0]:
-                    return result[0]["text"].strip()
-            elif isinstance(result, dict) and "generated_text" in result:
-                return result["generated_text"].strip()
-        elif response.status_code == 503:
-            return "Model is loading, please try again in a few moments..."
-        return f"Error: {response.status_code} - {response.text[:200]}"
-    except requests.exceptions.Timeout:
-        return "Request timed out. The model might be busy, please try again."
-    except Exception as e:
-        return f"Error connecting to Hugging Face: {str(e)}"
-
-# Enhanced food data with more states
-food_data = {
-    "Punjab": {
-        "staple": "Wheat-based items such as roti, paratha, and lassi.",
-        "famous_dishes": ["Butter Chicken", "Sarson da Saag with Makki di Roti", "Chole Bhature", "Amritsari Kulcha"],
-        "restaurants": {
-            "Amritsar": ["Kesar Da Dhaba", "Bharawan Da Dhaba", "Beera Chicken House"],
-            "default": ["Punjab Grill", "Pind Balluchi", "Baba Chicken"]
-        },
-        "specialty": "Rich use of dairy, tandoori cooking, and hearty meals with community-style dining."
-    },
-    "West Bengal": {
-        "staple": "Rice and fish form the core of the Bengali diet.",
-        "famous_dishes": ["Shorshe Ilish", "Macher Jhol", "Shukto", "Rasgulla", "Sandesh"],
-        "restaurants": {
-            "Kolkata": ["6 Ballygunge Place", "Bhojohori Manna", "Aminia"],
-            "default": ["Oh! Calcutta", "Bengali Sweet House"]
-        },
-        "specialty": "Mustard oil cooking, use of poppy seeds, balance of sweet and spicy flavors."
-    },
-    "Kerala": {
-        "staple": "Rice, coconut, and spices are fundamental to Kerala cuisine.",
-        "famous_dishes": ["Fish Curry", "Appam with Stew", "Beef Fry", "Puttu", "Payasam"],
-        "restaurants": {
-            "Kochi": ["Dhe Puttu", "Gokul Oottupura", "Cassava"],
-            "default": ["Sadhya", "Coconut Lagoon"]
-        },
-        "specialty": "Extensive use of coconut, curry leaves, and traditional cooking in banana leaves."
-    },
-    "Rajasthan": {
-        "staple": "Wheat, lentils, and dairy products with minimal use of water.",
-        "famous_dishes": ["Dal Baati Churma", "Gatte ki Sabzi", "Laal Maas", "Pyaaz Kachori"],
-        "restaurants": {
-            "Jaipur": ["Chokhi Dhani", "Handi Restaurant", "Rawat Mishthan Bhandar"],
-            "default": ["Rajdhani Thali Restaurant", "Sankalp"]
-        },
-        "specialty": "Desert cuisine with long shelf-life foods, minimal water usage, and intense spicing."
-    },
-    "Tamil Nadu": {
-        "staple": "Rice, lentils, and coconut with extensive use of tamarind.",
-        "famous_dishes": ["Sambar", "Rasam", "Dosa", "Idli", "Chettinad Chicken"],
-        "restaurants": {
-            "Chennai": ["Saravana Bhavan", "Murugan Idli Shop", "Anjappar"],
-            "default": ["Dakshin", "South Indian Coffee House"]
-        },
-        "specialty": "Temple cuisine traditions, fermented foods, and complex spice blends."
-    },
-    "Maharashtra": {
-        "staple": "Rice, wheat, and jowar with extensive use of peanuts and sesame.",
-        "famous_dishes": ["Vada Pav", "Misal Pav", "Puran Poli", "Bhel Puri"],
-        "restaurants": {
-            "Mumbai": ["Trishna", "Mahesh Lunch Home", "Kyani & Co"],
-            "default": ["Maharashtrian Bhojnalaya", "Vithal Kamats"]
-        },
-        "specialty": "Street food culture, coastal seafood, and festival-specific sweets."
-    }
-}
-
-# Streamlit App UI
-st.set_page_config(page_title="Indian Food Explorer", page_icon="🇮🇳", layout="wide")
-
-st.title("🇮🇳 Advanced Indian Food Explorer with Multiple AI Models")
-st.write("Discover regional cuisines and get AI-powered food recommendations using cutting-edge language models!")
-
-# Check API key status in sidebar
-with st.sidebar:
-    st.header("🤖 AI Model Selection")
-    
-    try:
-        # Check if API key exists in secrets
-        api_key = st.secrets["HF_API_KEY"]
-        if api_key:
-            st.success("✅ API key configured and ready!")
+                    return result[0]["text"]
             
-            # Model selection
-            selected_model = st.selectbox(
-                "Choose AI Model:",
-                list(MODELS.keys()),
-                help="Different models have different strengths - experiment to find your favorite!"
-            )
+            return "Sorry, I couldn't generate a response."
             
-            # Display model information
-            model_info = MODELS[selected_model]
-            st.info(f"**{selected_model}**\n\n{model_info['description']}")
-            
-        else:
-            st.error("❌ API key is empty in secrets")
-            selected_model = "Qwen3-0.6B"
-    except KeyError:
-        st.error("❌ API key not found in Streamlit secrets")
-        st.markdown("**To enable AI chat:**")
-        st.markdown("1. Go to your Streamlit Cloud app settings")
-        st.markdown("2. Navigate to 'Secrets' section")
-        st.markdown("3. Add the following:")
-        st.code('''HF_API_KEY = "your_huggingface_api_token_here"''')
-        st.markdown("4. Get your token from: https://huggingface.co/settings/tokens")
-        selected_model = "Qwen3-0.6B"
-    except Exception as e:
-        st.error(f"❌ Error accessing secrets: {str(e)}")
-        selected_model = "Qwen3-0.6B"
+        except requests.exceptions.RequestException as e:
+            st.error(f"API request failed: {str(e)}")
+            return None
+        except Exception as e:
+            st.error(f"Error processing response: {str(e)}")
+            return None
+
+def initialize_session_state():
+    """Initialize session state variables"""
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
+    if "selected_model" not in st.session_state:
+        st.session_state.selected_model = list(AVAILABLE_MODELS.keys())[0]
+
+def display_chat_messages():
+    """Display chat messages"""
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+
+def main():
+    # Initialize session state
+    initialize_session_state()
     
-    st.markdown("---")
-    st.info("💡 Try different models for varied responses! Some are better for recipes, others for cultural insights.")
-
-# Main content in two columns
-col1, col2 = st.columns([1, 1])
-
-with col1:
-    st.header("📍 Regional Food Information")
+    # Title and description
+    st.title("🤖 AI Chatbot with Hugging Face")
+    st.markdown("Chat with various AI models powered by Hugging Face!")
     
-    state = st.selectbox("Select a State or Union Territory", list(food_data.keys()))
-    location = st.text_input("Enter your city or location (optional)")
-
-    if state:
-        region_info = food_data.get(state, {})
+    # Sidebar configuration
+    with st.sidebar:
+        st.header("⚙️ Configuration")
         
-        st.subheader(f"🍚 Staple Food of {state}")
-        st.write(region_info.get("staple", "Information not available."))
-
-        st.subheader(f"🍛 Famous Dishes from {state}")
-        dishes = region_info.get("famous_dishes", [])
-        for dish in dishes:
-            st.write(f"• {dish}")
-
-        st.subheader(f"🍽️ Popular Restaurants")
-        if location and location in region_info["restaurants"]:
-            restaurants = region_info["restaurants"][location]
-        else:
-            restaurants = region_info["restaurants"].get("default", [])
-        for res in restaurants:
-            st.write(f"• {res}")
-
-        st.subheader("🌟 Culinary Specialty")
-        st.write(region_info.get("specialty", "Details not available."))
-
-with col2:
-    st.header("🤖 AI Food Assistant")
+        # API Token input
+        api_token = st.text_input(
+            "Hugging Face API Token",
+            type="password",
+            help="Get your token from https://huggingface.co/settings/tokens"
+        )
+        
+        if not api_token:
+            st.warning("Please enter your Hugging Face API token to continue.")
+            st.stop()
+        
+        st.divider()
+        
+        # Model selection
+        st.subheader("🎯 Model Selection")
+        selected_model_key = st.selectbox(
+            "Choose a model:",
+            options=list(AVAILABLE_MODELS.keys()),
+            format_func=lambda x: AVAILABLE_MODELS[x],
+            index=list(AVAILABLE_MODELS.keys()).index(st.session_state.selected_model)
+        )
+        
+        st.session_state.selected_model = selected_model_key
+        
+        st.divider()
+        
+        # Model parameters
+        st.subheader("🔧 Parameters")
+        max_length = st.slider("Max Response Length", 50, 500, 150)
+        temperature = st.slider("Temperature", 0.1, 2.0, 0.7, 0.1)
+        
+        st.divider()
+        
+        # Clear chat button
+        if st.button("🗑️ Clear Chat", use_container_width=True):
+            st.session_state.messages = []
+            st.rerun()
+        
+        # Model info
+        st.subheader("ℹ️ Current Model")
+        st.info(f"**{AVAILABLE_MODELS[selected_model_key]}**\n\n`{selected_model_key}`")
     
-    # Check if API key is available before showing chat interface
-    try:
-        api_key_check = st.secrets["HF_API_KEY"]
-        api_available = bool(api_key_check)
-    except:
-        api_available = False
+    # Main chat interface
+    col1, col2 = st.columns([3, 1])
     
-    if not api_available:
-        st.warning("⚠️ AI chat is disabled. Please configure HF_API_KEY in Streamlit secrets to enable AI features.")
-        st.info("See the sidebar for setup instructions.")
-    else:
-        # Chat interface
-        if "chat_history" not in st.session_state:
-            st.session_state.chat_history = []
-        
-        # Display chat history
-        chat_container = st.container()
-        with chat_container:
-            for i, (user_msg, bot_msg, model_used) in enumerate(st.session_state.chat_history):
-                st.write(f"**You:** {user_msg}")
-                st.write(f"**AI ({model_used}):** {bot_msg}")
-                st.write("---")
-        
-        # Quick suggestion buttons
-        st.subheader("🚀 Quick Questions")
-        col_a, col_b = st.columns(2)
-        
-        with col_a:
-            if st.button("🍛 Recipe suggestions"):
-                user_question = f"Give me 3 authentic {state} recipes that are beginner-friendly"
-                st.session_state.quick_question = user_question
-            if st.button("🌶️ Spice guide"):
-                user_question = f"What are the key spices used in {state} cuisine and how to use them?"
-                st.session_state.quick_question = user_question
-        
-        with col_b:
-            if st.button("🥘 Cooking tips"):
-                user_question = f"Share cooking techniques specific to {state} cuisine"
-                st.session_state.quick_question = user_question
-            if st.button("🍽️ Food pairing"):
-                user_question = f"What foods pair well with {', '.join(food_data[state]['famous_dishes'][:2])}?"
-                st.session_state.quick_question = user_question
+    with col1:
+        # Display existing messages
+        display_chat_messages()
         
         # Chat input
-        user_question = st.text_input("Ask the AI about Indian food, recipes, or cooking tips:", 
-                                     placeholder="e.g., How do I make authentic biryani? What spices go with fish curry?",
-                                     value=st.session_state.get('quick_question', ''))
+        if prompt := st.chat_input("Type your message here..."):
+            # Add user message to chat history
+            st.session_state.messages.append({"role": "user", "content": prompt})
+            
+            # Display user message
+            with st.chat_message("user"):
+                st.markdown(prompt)
+            
+            # Generate and display assistant response
+            with st.chat_message("assistant"):
+                with st.spinner("Thinking..."):
+                    chatbot = HuggingFaceChatbot(api_token)
+                    
+                    # Format prompt for better context
+                    if len(st.session_state.messages) > 1:
+                        # Include some conversation context
+                        context_messages = st.session_state.messages[-3:-1]  # Last 2 exchanges
+                        context = "\n".join([f"{msg['role']}: {msg['content']}" for msg in context_messages])
+                        formatted_prompt = f"{context}\nuser: {prompt}\nassistant:"
+                    else:
+                        formatted_prompt = f"user: {prompt}\nassistant:"
+                    
+                    response = chatbot.generate_response(
+                        selected_model_key, 
+                        formatted_prompt, 
+                        max_length, 
+                        temperature
+                    )
+                    
+                    if response:
+                        st.markdown(response)
+                        # Add assistant response to chat history
+                        st.session_state.messages.append({"role": "assistant", "content": response})
+                    else:
+                        error_msg = "Sorry, I encountered an error. Please try again."
+                        st.error(error_msg)
+                        st.session_state.messages.append({"role": "assistant", "content": error_msg})
+    
+    with col2:
+        # Chat statistics
+        st.subheader("📊 Chat Stats")
+        total_messages = len(st.session_state.messages)
+        user_messages = len([msg for msg in st.session_state.messages if msg["role"] == "user"])
+        assistant_messages = len([msg for msg in st.session_state.messages if msg["role"] == "assistant"])
         
-        if st.button("Ask AI", type="primary") and user_question:
-            # Create context-aware prompt
-            context = f"You are an expert on Indian cuisine with deep knowledge of regional specialties. "
-            if state:
-                selected_dishes = ", ".join(food_data[state]["famous_dishes"][:3])
-                context += f"The user is currently exploring {state} cuisine, known for dishes like {selected_dishes}. "
-            
-            # Enhanced prompt based on model type
-            if "Qwen" in selected_model:
-                full_prompt = f"{context}\n\nUser question: {user_question}\n\nPlease provide a detailed, helpful response about Indian food with specific tips and cultural context:"
-            elif "Llama" in selected_model:
-                full_prompt = f"[INST] {context}\n\nUser question: {user_question}\n\nProvide a comprehensive answer about Indian cuisine. [/INST]"
-            elif "Mistral" in selected_model:
-                full_prompt = f"<s>[INST] {context}\n\nUser question: {user_question} [/INST]"
-            else:
-                full_prompt = f"{context}\n\nUser question: {user_question}\n\nResponse:"
-            
-            with st.spinner(f"AI ({selected_model}) is thinking..."):
-                ai_response = query_huggingface_model(full_prompt, selected_model)
-            
-            # Add to chat history with model info
-            st.session_state.chat_history.append((user_question, ai_response, selected_model))
-            
-            # Clear quick question
-            if 'quick_question' in st.session_state:
-                del st.session_state.quick_question
-            
-            st.rerun()
+        st.metric("Total Messages", total_messages)
+        st.metric("Your Messages", user_messages)
+        st.metric("AI Responses", assistant_messages)
+        
+        # Tips
+        st.subheader("💡 Tips")
+        st.markdown("""
+        - **Clear prompts** get better responses
+        - **Adjust temperature** for creativity:
+          - Lower (0.1-0.5): More focused
+          - Higher (0.8-1.5): More creative
+        - **Try different models** for varied styles
+        - **Longer context** helps with follow-ups
+        """)
 
-# Model comparison section
-st.header("🔬 Model Comparison Guide")
-col3, col4 = st.columns(2)
-
-with col3:
-    st.subheader("🎯 Best Models For:")
-    st.write("""
-    **Recipe Instructions:** CodeLlama-7B-Instruct, Qwen2.5-7B-Instruct
-    
-    **Cultural Context:** Llama-3.1-8B-Instruct, Qwen3-0.6B
-    
-    **Quick Responses:** Gemma-2B-Instruct, Mistral-7B-Instruct
-    
-    **Detailed Analysis:** Qwen2.5-7B-Instruct, Zephyr-7B-Beta
-    """)
-
-with col4:
-    st.subheader("⚡ Model Characteristics:")
-    st.write("""
-    **Qwen Series:** Multilingual capabilities, excellent reasoning
-    
-    **Llama 3.1:** Strong chat interactions, supports multiple languages
-    
-    **Mistral:** Fast inference, efficient responses
-    
-    **CodeLlama:** Structured output, great for formatted recipes
-    """)
-
-# Additional features
-st.header("📊 Application Statistics")
-col5, col6, col7, col8 = st.columns(4)
-
-with col5:
-    st.metric("States Covered", len(food_data))
-with col6:
-    total_dishes = sum(len(data["famous_dishes"]) for data in food_data.values())
-    st.metric("Famous Dishes", total_dishes)
-with col7:
-    st.metric("AI Models", len(MODELS))
-with col8:
-    if 'chat_history' in st.session_state:
-        st.metric("Chat Messages", len(st.session_state.chat_history))
-    else:
-        st.metric("Chat Messages", 0)
-
-# Instructions
-with st.expander("📋 How to use this app"):
-    st.write("""
-    **🗺️ Explore Regional Food:**
-    - Select a state to learn about its cuisine
-    - Enter your city for local restaurant recommendations
-    
-    **🤖 AI Assistant Features:**
-    - Choose from 7 different AI models
-    - Use quick question buttons for instant suggestions
-    - Ask about recipes, cooking techniques, spice usage, food pairing
-    
-    **🔬 Model Selection Guide:**
-    - **Qwen models**: Best for multilingual and reasoning tasks
-    - **Llama 3.1**: Excellent for conversational responses
-    - **Mistral**: Fast and efficient for quick queries
-    - **CodeLlama**: Great for structured recipe formatting
-    - **Gemma**: Lightweight and speedy responses
-    - **Zephyr**: Optimized for helpful conversations
-    
-    **⚙️ Setup Requirements:**
-    - Get a free Hugging Face API token from: https://huggingface.co/settings/tokens
-    - Add 'HF_API_KEY' to your Streamlit Cloud app secrets
-    - Some models may need a few moments to load initially
-    """)
-
-# Clear chat history button
-if st.button("🗑️ Clear Chat History"):
-    st.session_state.chat_history = []
-    st.rerun()
-
-# Footer
-st.markdown("---")
-st.markdown("Made with ❤️ for Indian food lovers | Powered by Multiple Hugging Face AI Models")
-st.markdown("*Try different models to see varied perspectives on the same questions!*")
+if __name__ == "__main__":
+    main()
