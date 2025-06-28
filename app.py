@@ -1,188 +1,169 @@
 import streamlit as st
-import requests
 import json
 from typing import Dict, List, Optional
 
 # Page configuration
 st.set_page_config(
-    page_title="AI Chatbot",
-    page_icon="🤖",
+    page_title="Indian Food Discovery",
+    page_icon="🍛",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Available models
-AVAILABLE_MODELS = {
-    "Qwen/Qwen2-1.5B-Instruct": "Qwen 2 1.5B",
-    "Qwen/Qwen2-7B-Instruct": "Qwen 2 7B", 
-    "microsoft/DialoGPT-medium": "DialoGPT Medium",
-    "microsoft/DialoGPT-large": "DialoGPT Large",
-    "facebook/blenderbot-400M-distill": "BlenderBot 400M",
-    "facebook/blenderbot-1B-distill": "BlenderBot 1B",
-    "google/flan-t5-base": "Flan-T5 Base",
-    "google/flan-t5-large": "Flan-T5 Large"
+# Indian states and union territories
+INDIAN_STATES = {
+    "Andhra Pradesh": "AP", "Arunachal Pradesh": "AR", "Assam": "AS", "Bihar": "BR", "Chhattisgarh": "CG",
+    "Goa": "GA", "Gujarat": "GJ", "Haryana": "HR", "Himachal Pradesh": "HP", "Jharkhand": "JH",
+    "Karnataka": "KA", "Kerala": "KL", "Madhya Pradesh": "MP", "Maharashtra": "MH", "Manipur": "MN",
+    "Meghalaya": "ML", "Mizoram": "MZ", "Nagaland": "NL", "Odisha": "OR", "Punjab": "PB",
+    "Rajasthan": "RJ", "Sikkim": "SK", "Tamil Nadu": "TN", "Telangana": "TG", "Tripura": "TR",
+    "Uttar Pradesh": "UP", "Uttarakhand": "UK", "West Bengal": "WB",
+    "Andaman and Nicobar Islands": "AN", "Chandigarh": "CH", "Dadra and Nagar Haveli and Daman and Diu": "DN",
+    "Lakshadweep": "LD", "Delhi": "DL", "Puducherry": "PY", "Ladakh": "LA", "Jammu and Kashmir": "JK"
 }
 
-def get_api_token() -> Optional[str]:
-    """
-    Get API token from Streamlit secrets with multiple fallback options
-    """
-    try:
-        # Primary: Check for HUGGINGFACE_API_TOKEN
-        if "HUGGINGFACE_API_TOKEN" in st.secrets:
-            return st.secrets["HUGGINGFACE_API_TOKEN"]
-        
-        # Fallback 1: Check for HF_TOKEN (common alternative)
-        if "HF_TOKEN" in st.secrets:
-            return st.secrets["HF_TOKEN"]
-        
-        # Fallback 2: Check for API_TOKEN (generic)
-        if "API_TOKEN" in st.secrets:
-            return st.secrets["API_TOKEN"]
-        
-        # Fallback 3: Check nested secrets structure
-        if "huggingface" in st.secrets and "api_token" in st.secrets["huggingface"]:
-            return st.secrets["huggingface"]["api_token"]
-        
-        return None
-        
-    except Exception as e:
-        st.error(f"Error accessing secrets: {str(e)}")
-        return None
-
-def display_token_setup_instructions():
-    """Display setup instructions for API token"""
-    st.error("❌ Hugging Face API Token not found in app settings")
+class IndianFoodDiscovery:
+    def __init__(self):
+        self.food_data = self._initialize_food_data()
     
-    with st.expander("📖 Setup Instructions", expanded=True):
-        st.markdown("""
-        ### For Local Development:
-        1. Create a `.streamlit/secrets.toml` file in your project root
-        2. Add your token:
-        ```toml
-        HUGGINGFACE_API_TOKEN = "your_token_here"
-        ```
-        
-        ### For Streamlit Cloud:
-        1. Go to your app's **Settings** → **Secrets**
-        2. Add the following:
-        ```toml
-        HUGGINGFACE_API_TOKEN = "your_token_here"
-        ```
-        
-        ### Alternative Token Names (any of these will work):
-        - `HUGGINGFACE_API_TOKEN`
-        - `HF_TOKEN`
-        - `API_TOKEN`
-        - Or nested: `[huggingface]` → `api_token = "your_token"`
-        
-        ### How to Get Your Token:
-        1. Go to [Hugging Face](https://huggingface.co/settings/tokens)
-        2. Create a new token with **Read** permissions
-        3. Copy and paste it into your secrets
-        """)
-    
-    st.info("💡 **Tip**: After adding your token, refresh the page or restart the app.")
-
-class HuggingFaceChatbot:
-    def __init__(self, api_token: str):
-        self.api_token = api_token
-        self.headers = {"Authorization": f"Bearer {api_token}"}
-        self.base_url = "https://api-inference.huggingface.co/models/"
-    
-    def test_connection(self) -> bool:
-        """Test if the API token is valid"""
-        try:
-            # Test with a simple model
-            test_url = f"{self.base_url}gpt2"
-            test_payload = {"inputs": "test"}
-            
-            response = requests.post(
-                test_url, 
-                headers=self.headers, 
-                json=test_payload,
-                timeout=10
-            )
-            
-            # Token is valid if we don't get a 401/403
-            return response.status_code not in [401, 403]
-            
-        except Exception:
-            return False
-    
-    def generate_response(self, model_name: str, prompt: str, max_length: int = 150, temperature: float = 0.7) -> Optional[str]:
-        """Generate response from Hugging Face model"""
-        url = f"{self.base_url}{model_name}"
-        
-        # Prepare payload based on model type
-        if "qwen" in model_name.lower() or "flan" in model_name.lower():
-            payload = {
-                "inputs": prompt,
-                "parameters": {
-                    "max_new_tokens": max_length,
-                    "temperature": temperature,
-                    "do_sample": True,
-                    "return_full_text": False
-                }
+    def _initialize_food_data(self) -> Dict:
+        """Initialize comprehensive food data for Indian states"""
+        return {
+            "Andhra Pradesh": {
+                "staples": ["Rice", "Millet", "Lentils", "Tamarind"],
+                "dishes": ["Hyderabadi Biryani", "Pesarattu", "Gongura Mutton", "Pulusu", "Pappu Charu", "Bobbatlu"],
+                "specialties": "Known for spicy food with heavy use of red chilies, tamarind, and coconut. Hyderabadi cuisine shows Mughal influence.",
+                "cooking_style": "Extensive use of tamarind, red chilies, and coconut. Steam cooking and slow-cooking techniques."
+            },
+            "Assam": {
+                "staples": ["Rice", "Fish", "Duck", "Pork", "Bamboo shoots"],
+                "dishes": ["Assam Laksa", "Masor Tenga", "Khar", "Pitika", "Pitha", "Duck Curry"],
+                "specialties": "Fermented foods, bamboo shoot preparations, and minimal use of spices. River fish is predominant.",
+                "cooking_style": "Steaming, boiling, and minimal oil usage. Extensive use of banana leaves for cooking."
+            },
+            "Bihar": {
+                "staples": ["Rice", "Wheat", "Lentils", "Mustard oil"],
+                "dishes": ["Litti Chokha", "Sattu Paratha", "Thekua", "Khaja", "Mutton Curry", "Dal Pitha"],
+                "specialties": "Simple, rustic cuisine with emphasis on roasted and grilled foods. Sattu (roasted gram flour) is very popular.",
+                "cooking_style": "Roasting, grilling over coal/wood fire. Heavy use of mustard oil and garlic."
+            },
+            "Goa": {
+                "staples": ["Rice", "Fish", "Coconut", "Cashews", "Kokum"],
+                "dishes": ["Fish Curry Rice", "Vindaloo", "Xacuti", "Bebinca", "Feni", "Prawn Balchao"],
+                "specialties": "Portuguese influence evident in vinegar-based curries. Abundant seafood and coconut usage.",
+                "cooking_style": "Heavy use of coconut, kokum, and Portuguese-influenced techniques like pickling and fermentation."
+            },
+            "Gujarat": {
+                "staples": ["Wheat", "Millet", "Lentils", "Vegetables", "Jaggery"],
+                "dishes": ["Dhokla", "Thepla", "Undhiyu", "Gujarati Thali", "Khandvi", "Fafda Jalebi"],
+                "specialties": "Predominantly vegetarian with sweet touch in savory dishes. Extensive use of jaggery and yogurt.",
+                "cooking_style": "Steaming, tempering with mustard seeds and curry leaves. Balance of sweet, salty, and spicy flavors."
+            },
+            "Haryana": {
+                "staples": ["Wheat", "Millet", "Dairy products", "Mustard greens"],
+                "dishes": ["Bajra Khichdi", "Sarson ka Saag", "Makki ki Roti", "Kadhi Pakora", "Churma", "Besan Masala Roti"],
+                "specialties": "Rich dairy-based cuisine with seasonal vegetables. Heavy, nutritious meals suitable for agricultural lifestyle.",
+                "cooking_style": "Clay pot cooking, slow cooking with ghee and butter. Emphasis on fresh dairy products."
+            },
+            "Karnataka": {
+                "staples": ["Rice", "Ragi", "Coconut", "Lentils"],
+                "dishes": ["Bisi Bele Bath", "Mysore Pak", "Dosa Varieties", "Coorg Pork Curry", "Neer Dosa", "Obbattu"],
+                "specialties": "Diverse regional variations - coastal, malnad, and northern Karnataka cuisines. Coffee culture is strong.",
+                "cooking_style": "Coconut-based gravies in coastal areas, jaggery usage, and fermented foods like dosa and idli."
+            },
+            "Kerala": {
+                "staples": ["Rice", "Coconut", "Fish", "Spices", "Tapioca"],
+                "dishes": ["Fish Molee", "Appam with Stew", "Sadya", "Kerala Parotta", "Puttu Kadala", "Payasam"],
+                "specialties": "Spice capital of India. Coconut milk-based curries and extensive use of aromatic spices.",
+                "cooking_style": "Coconut milk gravies, banana leaf cooking, and complex spice blending techniques."
+            },
+            "Maharashtra": {
+                "staples": ["Rice", "Wheat", "Millet", "Lentils", "Peanuts"],
+                "dishes": ["Vada Pav", "Misal Pav", "Bhel Puri", "Puran Poli", "Kolhapuri Mutton", "Modak"],
+                "specialties": "Street food culture is prominent. Regional variations include Konkani, Marathwada, and Vidarbha cuisines.",
+                "cooking_style": "Dry spice powders, coconut, and peanut-based gravies. Street food techniques."
+            },
+            "Punjab": {
+                "staples": ["Wheat", "Dairy products", "Mustard greens", "Corn"],
+                "dishes": ["Butter Chicken", "Sarson da Saag", "Makki di Roti", "Chole Bhature", "Lassi", "Kulcha"],
+                "specialties": "Rich, creamy gravies with extensive use of dairy. Tandoor cooking is prevalent.",
+                "cooking_style": "Tandoor cooking, heavy use of ghee and butter, slow-cooked dal and vegetables."
+            },
+            "Rajasthan": {
+                "staples": ["Wheat", "Millet", "Lentils", "Dried vegetables", "Ghee"],
+                "dishes": ["Dal Baati Churma", "Gatte ki Sabzi", "Laal Maas", "Ker Sangri", "Ghevar", "Pyaaz Kachori"],
+                "specialties": "Desert cuisine with preservation techniques. Minimal water usage in cooking due to arid climate.",
+                "cooking_style": "Dry cooking methods, sun-drying, and preservation techniques. Heavy use of ghee and dry spices."
+            },
+            "Tamil Nadu": {
+                "staples": ["Rice", "Lentils", "Coconut", "Tamarind", "Curry leaves"],
+                "dishes": ["Chettinad Chicken", "Sambar Rice", "Rasam", "Idli Sambhar", "Payasam", "Murukku"],
+                "specialties": "Temple food traditions, extensive vegetarian cuisine, and Chettinad's fiery non-vegetarian dishes.",
+                "cooking_style": "Tempering with mustard seeds and curry leaves, coconut grinding, and tamarind-based sourness."
+            },
+            "West Bengal": {
+                "staples": ["Rice", "Fish", "Sweets", "Mustard oil", "Poppy seeds"],
+                "dishes": ["Fish Curry", "Mishti Doi", "Rosogolla", "Kosha Mangsho", "Shukto", "Pitha"],
+                "specialties": "Fish and rice culture with elaborate sweet preparations. Subtle flavors with emphasis on natural tastes.",
+                "cooking_style": "Light spicing, mustard oil usage, steaming, and elaborate sweet-making techniques."
+            },
+            "Delhi": {
+                "staples": ["Wheat", "Rice", "Dairy products", "Mixed cuisine"],
+                "dishes": ["Butter Chicken", "Paranthe Wali Gali", "Chaat", "Kebabs", "Kulfi", "Aloo Tikki"],
+                "specialties": "Mughal influence with street food culture. Mix of North Indian cuisines due to migration.",
+                "cooking_style": "Tandoor cooking, rich gravies, and diverse street food preparation techniques."
             }
+        }
+    
+    def get_food_info(self, state: str, user_location: str = "") -> str:
+        """Generate food discovery response for a given state"""
+        if state not in self.food_data:
+            return f"Sorry, I don't have detailed information about {state}'s cuisine yet. Please try another Indian state or union territory."
+        
+        data = self.food_data[state]
+        
+        response = f"# 🍛 Food Culture of {state}\n\n"
+        
+        # Staple foods
+        response += f"## 🌾 **Staple Foods:**\n"
+        response += f"{', '.join(data['staples'])}\n\n"
+        
+        # Famous dishes
+        response += f"## 🍽️ **Famous Regional Dishes:**\n"
+        for i, dish in enumerate(data['dishes'], 1):
+            response += f"{i}. **{dish}**\n"
+        response += "\n"
+        
+        # Restaurant recommendations
+        response += f"## 🏪 **Restaurant Recommendations:**\n"
+        if user_location:
+            response += f"*Popular {state} cuisine restaurants in/near {user_location}:*\n"
+            response += f"1. **Local Authentic Restaurant** - Traditional {state} thali and specialties\n"
+            response += f"2. **Regional Food Corner** - Famous for authentic {data['dishes'][0]} and local favorites\n"
+            response += f"3. **Heritage Kitchen** - Family-style {state} cuisine with traditional recipes\n\n"
+            response += f"*💡 Tip: Search for '{state} food near {user_location}' or 'authentic {state} restaurant {user_location}' for specific locations*\n\n"
         else:
-            payload = {
-                "inputs": prompt,
-                "parameters": {
-                    "max_length": max_length,
-                    "temperature": temperature,
-                    "do_sample": True
-                }
-            }
+            response += f"1. **Traditional {state} Restaurants** - Look for family-run establishments\n"
+            response += f"2. **Regional Thali Places** - Complete {state} meal experience\n"
+            response += f"3. **Local Food Joints** - Authentic street food and snacks\n\n"
         
-        try:
-            response = requests.post(url, headers=self.headers, json=payload, timeout=30)
-            
-            # Handle specific error cases
-            if response.status_code == 401:
-                st.error("❌ Invalid API token. Please check your token in app settings.")
-                return None
-            elif response.status_code == 403:
-                st.error("❌ Access forbidden. Your token may not have the required permissions.")
-                return None
-            elif response.status_code == 503:
-                st.warning("⏳ Model is loading. Please try again in a moment.")
-                return None
-            
-            response.raise_for_status()
-            result = response.json()
-            
-            # Handle different response formats
-            if isinstance(result, list) and len(result) > 0:
-                if "generated_text" in result[0]:
-                    generated_text = result[0]["generated_text"]
-                    # Remove the original prompt if it's included
-                    if generated_text.startswith(prompt):
-                        generated_text = generated_text[len(prompt):].strip()
-                    return generated_text
-                elif "text" in result[0]:
-                    return result[0]["text"]
-            
-            return "Sorry, I couldn't generate a response."
-            
-        except requests.exceptions.Timeout:
-            st.error("⏰ Request timed out. Please try again.")
-            return None
-        except requests.exceptions.RequestException as e:
-            st.error(f"API request failed: {str(e)}")
-            return None
-        except Exception as e:
-            st.error(f"Error processing response: {str(e)}")
-            return None
+        # Culinary specialties
+        response += f"## ✨ **Culinary Specialties & Cooking Style:**\n"
+        response += f"**Specialties:** {data['specialties']}\n\n"
+        response += f"**Cooking Style:** {data['cooking_style']}\n\n"
+        
+        response += f"---\n*Explore the rich culinary heritage of {state}! 🇮🇳*"
+        
+        return response
 
 def initialize_session_state():
     """Initialize session state variables"""
     if "messages" not in st.session_state:
         st.session_state.messages = []
-    if "selected_model" not in st.session_state:
-        st.session_state.selected_model = list(AVAILABLE_MODELS.keys())[0]
-    if "token_validated" not in st.session_state:
-        st.session_state.token_validated = False
+    if "selected_state" not in st.session_state:
+        st.session_state.selected_state = ""
+    if "user_location" not in st.session_state:
+        st.session_state.user_location = ""
 
 def display_chat_messages():
     """Display chat messages"""
@@ -190,66 +171,78 @@ def display_chat_messages():
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
 
+def process_user_query(query: str, food_discovery: IndianFoodDiscovery, user_location: str) -> str:
+    """Process user query and generate appropriate response"""
+    query_lower = query.lower()
+    
+    # Check if query mentions any Indian state
+    for state in INDIAN_STATES.keys():
+        if state.lower() in query_lower:
+            return food_discovery.get_food_info(state, user_location)
+    
+    # Check for common food-related queries
+    if any(word in query_lower for word in ['food', 'cuisine', 'dish', 'restaurant', 'eat']):
+        return ("I'm here to help you discover Indian food culture! Please mention:\n\n"
+                "🗺️ **An Indian state or union territory** (e.g., 'Tell me about Kerala food', 'Punjab cuisine', 'What does Maharashtra eat?')\n\n"
+                "I can provide information about:\n"
+                "- Staple foods and famous dishes\n"
+                "- Restaurant recommendations\n"
+                "- Cooking styles and specialties\n\n"
+                "**Example queries:**\n"
+                "- 'Food culture of Tamil Nadu'\n"
+                "- 'What are famous dishes of Rajasthan?'\n"
+                "- 'Bengali cuisine restaurants'")
+    
+    return ("I'm your Indian Food Discovery assistant! 🍛\n\n"
+            "I specialize in showcasing the diverse food culture of India by state and union territory.\n\n"
+            "Please ask me about:\n"
+            "- Food culture of any Indian state\n"
+            "- Famous dishes and specialties\n"
+            "- Restaurant recommendations\n\n"
+            "**Try asking:** 'Tell me about [State Name] food' or 'What does [State] eat?'")
+
 def main():
     # Initialize session state
     initialize_session_state()
     
+    # Initialize food discovery system
+    food_discovery = IndianFoodDiscovery()
+    
     # Title and description
-    st.title("🤖 AI Chatbot with Hugging Face")
-    st.markdown("Chat with various AI models powered by Hugging Face!")
-    
-    # Get API token
-    api_token = get_api_token()
-    
-    if not api_token:
-        display_token_setup_instructions()
-        st.stop()
-    
-    # Initialize chatbot
-    chatbot = HuggingFaceChatbot(api_token)
+    st.title("🍛 Indian Food Discovery Assistant")
+    st.markdown("*Discover the diverse culinary heritage of India, state by state!*")
     
     # Sidebar configuration
     with st.sidebar:
-        st.header("⚙️ Configuration")
+        st.header("🗺️ Food Discovery Settings")
         
-        # Token status
-        st.subheader("🔐 API Status")
+        # User location input
+        st.subheader("📍 Your Location")
+        user_location = st.text_input(
+            "Enter your city/location:",
+            value=st.session_state.user_location,
+            placeholder="e.g., Pune, Bangalore, Delhi"
+        )
+        st.session_state.user_location = user_location
         
-        # Validate token on first run or when explicitly requested
-        if not st.session_state.token_validated or st.button("🔍 Test Connection"):
-            with st.spinner("Validating token..."):
-                if chatbot.test_connection():
-                    st.success("✅ API Token is valid")
-                    st.session_state.token_validated = True
-                else:
-                    st.error("❌ API Token validation failed")
-                    st.session_state.token_validated = False
-        elif st.session_state.token_validated:
-            st.success("✅ API Token is valid")
-        
-        # Show masked token for verification
-        masked_token = f"{api_token[:8]}...{api_token[-4:]}" if len(api_token) > 12 else "***"
-        st.code(f"Token: {masked_token}")
+        if user_location:
+            st.success(f"📍 Location set: {user_location}")
         
         st.divider()
         
-        # Model selection
-        st.subheader("🎯 Model Selection")
-        selected_model_key = st.selectbox(
-            "Choose a model:",
-            options=list(AVAILABLE_MODELS.keys()),
-            format_func=lambda x: AVAILABLE_MODELS[x],
-            index=list(AVAILABLE_MODELS.keys()).index(st.session_state.selected_model)
+        # Quick state selection
+        st.subheader("🏛️ Quick State Selection")
+        selected_state = st.selectbox(
+            "Choose a state/UT:",
+            options=[""] + list(INDIAN_STATES.keys()),
+            index=0
         )
         
-        st.session_state.selected_model = selected_model_key
-        
-        st.divider()
-        
-        # Model parameters
-        st.subheader("🔧 Parameters")
-        max_length = st.slider("Max Response Length", 50, 500, 150)
-        temperature = st.slider("Temperature", 0.1, 2.0, 0.7, 0.1)
+        if selected_state and st.button("🔍 Explore Cuisine", use_container_width=True):
+            response = food_discovery.get_food_info(selected_state, user_location)
+            st.session_state.messages.append({"role": "user", "content": f"Tell me about {selected_state} food"})
+            st.session_state.messages.append({"role": "assistant", "content": response})
+            st.rerun()
         
         st.divider()
         
@@ -258,14 +251,15 @@ def main():
             st.session_state.messages = []
             st.rerun()
         
-        # Model info
-        st.subheader("ℹ️ Current Model")
-        st.info(f"**{AVAILABLE_MODELS[selected_model_key]}**\n\n`{selected_model_key}`")
-    
-    # Only show chat interface if token is validated
-    if not st.session_state.token_validated:
-        st.warning("⚠️ Please validate your API token in the sidebar before chatting.")
-        return
+        st.divider()
+        
+        # Available states info
+        st.subheader("🇮🇳 Available Regions")
+        st.markdown(f"**{len(INDIAN_STATES)} States & Union Territories**")
+        
+        with st.expander("View All States"):
+            for state in sorted(INDIAN_STATES.keys()):
+                st.text(f"• {state}")
     
     # Main chat interface
     col1, col2 = st.columns([3, 1])
@@ -275,7 +269,7 @@ def main():
         display_chat_messages()
         
         # Chat input
-        if prompt := st.chat_input("Type your message here..."):
+        if prompt := st.chat_input("Ask about any Indian state's food culture..."):
             # Add user message to chat history
             st.session_state.messages.append({"role": "user", "content": prompt})
             
@@ -285,52 +279,44 @@ def main():
             
             # Generate and display assistant response
             with st.chat_message("assistant"):
-                with st.spinner("Thinking..."):
-                    # Format prompt for better context
-                    if len(st.session_state.messages) > 1:
-                        # Include some conversation context
-                        context_messages = st.session_state.messages[-3:-1]  # Last 2 exchanges
-                        context = "\n".join([f"{msg['role']}: {msg['content']}" for msg in context_messages])
-                        formatted_prompt = f"{context}\nuser: {prompt}\nassistant:"
-                    else:
-                        formatted_prompt = f"user: {prompt}\nassistant:"
-                    
-                    response = chatbot.generate_response(
-                        selected_model_key, 
-                        formatted_prompt, 
-                        max_length, 
-                        temperature
-                    )
-                    
-                    if response:
-                        st.markdown(response)
-                        # Add assistant response to chat history
-                        st.session_state.messages.append({"role": "assistant", "content": response})
-                    else:
-                        error_msg = "Sorry, I encountered an error. Please try again."
-                        st.error(error_msg)
-                        st.session_state.messages.append({"role": "assistant", "content": error_msg})
+                response = process_user_query(prompt, food_discovery, user_location)
+                st.markdown(response)
+                
+                # Add assistant response to chat history
+                st.session_state.messages.append({"role": "assistant", "content": response})
     
     with col2:
         # Chat statistics
-        st.subheader("📊 Chat Stats")
+        st.subheader("📊 Discovery Stats")
         total_messages = len(st.session_state.messages)
-        user_messages = len([msg for msg in st.session_state.messages if msg["role"] == "user"])
-        assistant_messages = len([msg for msg in st.session_state.messages if msg["role"] == "assistant"])
+        user_queries = len([msg for msg in st.session_state.messages if msg["role"] == "user"])
         
         st.metric("Total Messages", total_messages)
-        st.metric("Your Messages", user_messages)
-        st.metric("AI Responses", assistant_messages)
+        st.metric("Your Queries", user_queries)
         
-        # Tips
-        st.subheader("💡 Tips")
+        # Usage tips
+        st.subheader("💡 How to Use")
         st.markdown("""
-        - **Clear prompts** get better responses
-        - **Adjust temperature** for creativity:
-          - Lower (0.1-0.5): More focused
-          - Higher (0.8-1.5): More creative
-        - **Try different models** for varied styles
-        - **Longer context** helps with follow-ups
+        **Sample Queries:**
+        - "Kerala food culture"
+        - "Famous dishes of Punjab"
+        - "What does Gujarat eat?"
+        - "Rajasthani cuisine"
+        - "Bengali food restaurants"
+        
+        **Features:**
+        - 🌾 Staple foods by region
+        - 🍽️ Famous dishes & specialties  
+        - 🏪 Restaurant recommendations
+        - ✨ Cooking styles & techniques
+        """)
+        
+        st.subheader("🎯 Quick Tips")
+        st.markdown("""
+        - Set your location for better restaurant suggestions
+        - Ask about specific states for detailed info
+        - All responses are in English
+        - Covers all 28 states + 8 union territories
         """)
 
 if __name__ == "__main__":
