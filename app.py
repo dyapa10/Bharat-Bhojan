@@ -5,18 +5,18 @@ from typing import Optional
 
 # Hugging Face API configuration
 HF_API_URL = "https://api-inference.huggingface.co/models/microsoft/DialoGPT-medium"
-# API key will be stored securely in Streamlit Cloud secrets
-HF_API_KEY = st.secrets.get("HF_API_KEY", "")
 
-def query_huggingface_chat(prompt: str, api_key: str = None) -> Optional[str]:
-    """Query Hugging Face chat model"""
-    # Use provided API key or fall back to secrets
-    key_to_use = api_key or st.secrets.get("HF_API_KEY", "")
+def query_huggingface_chat(prompt: str) -> Optional[str]:
+    """Query Hugging Face chat model using API key from Streamlit secrets"""
+    try:
+        # Read API key from Streamlit Cloud secrets
+        api_key = st.secrets["HF_API_KEY"]
+    except KeyError:
+        return "API key not found in Streamlit secrets. Please add 'HF_API_KEY' to your app secrets."
+    except Exception as e:
+        return f"Error accessing secrets: {str(e)}"
     
-    if not key_to_use:
-        return "API key not configured. Please add it in Streamlit Cloud secrets or enter manually."
-    
-    headers = {"Authorization": f"Bearer {key_to_use}"}
+    headers = {"Authorization": f"Bearer {api_key}"}
     payload = {
         "inputs": prompt,
         "parameters": {
@@ -82,31 +82,29 @@ st.set_page_config(page_title="Indian Food Explorer", page_icon="🇮🇳", layo
 st.title("🇮🇳 Regional Indian Food Explorer with AI Chat")
 st.write("Discover staple foods, famous dishes, and iconic restaurants across India's diverse regions - now with AI-powered food recommendations!")
 
-# Sidebar for API key (optional - can also use secrets)
+# Check API key status in sidebar
 with st.sidebar:
-    st.header("🤖 AI Chat Settings")
+    st.header("🤖 AI Chat Status")
     
-    # Check if API key is already in secrets
-    has_secret_key = bool(st.secrets.get("HF_API_KEY", ""))
-    
-    if has_secret_key:
-        st.success("✅ API key configured in Streamlit secrets")
+    try:
+        # Check if API key exists in secrets
         api_key = st.secrets["HF_API_KEY"]
-        show_input = st.checkbox("Override with manual key")
-        if show_input:
-            api_key = st.text_input("Manual Hugging Face API Key", type="password")
-    else:
-        st.info("💡 Add HF_API_KEY to Streamlit secrets for permanent storage")
-        api_key = st.text_input("Hugging Face API Key", type="password", 
-                               help="Get your free API key from https://huggingface.co/settings/tokens")
+        if api_key:
+            st.success("✅ API key configured and ready!")
+        else:
+            st.error("❌ API key is empty in secrets")
+    except KeyError:
+        st.error("❌ API key not found in Streamlit secrets")
+        st.markdown("**To enable AI chat:**")
+        st.markdown("1. Go to your Streamlit Cloud app settings")
+        st.markdown("2. Navigate to 'Secrets' section")
+        st.markdown("3. Add the following:")
+        st.code('''HF_API_KEY = "your_huggingface_api_token_here"''')
+        st.markdown("4. Get your token from: https://huggingface.co/settings/tokens")
+    except Exception as e:
+        st.error(f"❌ Error accessing secrets: {str(e)}")
     
     st.markdown("---")
-    st.markdown("**How to add to Streamlit secrets:**")
-    st.code('''
-# In your Streamlit Cloud app settings:
-[secrets]
-HF_API_KEY = "your_actual_api_key_here"
-    ''')
     st.info("💡 The AI can help with recipe suggestions, cooking tips, and food recommendations!")
 
 # Main content in two columns
@@ -143,29 +141,34 @@ with col1:
 with col2:
     st.header("🤖 AI Food Assistant")
     
-    # Chat interface
-    if "chat_history" not in st.session_state:
-        st.session_state.chat_history = []
+    # Check if API key is available before showing chat interface
+    try:
+        api_key_check = st.secrets["HF_API_KEY"]
+        api_available = bool(api_key_check)
+    except:
+        api_available = False
     
-    # Display chat history
-    chat_container = st.container()
-    with chat_container:
-        for i, (user_msg, bot_msg) in enumerate(st.session_state.chat_history):
-            st.write(f"**You:** {user_msg}")
-            st.write(f"**AI:** {bot_msg}")
-            st.write("---")
-    
-    # Chat input
-    user_question = st.text_input("Ask the AI about Indian food, recipes, or cooking tips:", 
-                                 placeholder="e.g., How do I make authentic biryani? What spices go with fish curry?")
-    
-    if st.button("Ask AI") and user_question:
-        # Use API key from secrets or manual input
-        current_api_key = api_key if 'api_key' in locals() else st.secrets.get("HF_API_KEY", "")
+    if not api_available:
+        st.warning("⚠️ AI chat is disabled. Please configure HF_API_KEY in Streamlit secrets to enable AI features.")
+        st.info("See the sidebar for setup instructions.")
+    else:
+        # Chat interface
+        if "chat_history" not in st.session_state:
+            st.session_state.chat_history = []
         
-        if not current_api_key:
-            st.error("Please configure your Hugging Face API key in Streamlit secrets or enter it manually in the sidebar.")
-        else:
+        # Display chat history
+        chat_container = st.container()
+        with chat_container:
+            for i, (user_msg, bot_msg) in enumerate(st.session_state.chat_history):
+                st.write(f"**You:** {user_msg}")
+                st.write(f"**AI:** {bot_msg}")
+                st.write("---")
+        
+        # Chat input
+        user_question = st.text_input("Ask the AI about Indian food, recipes, or cooking tips:", 
+                                     placeholder="e.g., How do I make authentic biryani? What spices go with fish curry?")
+        
+        if st.button("Ask AI") and user_question:
             # Create context-aware prompt
             context = f"You are an expert on Indian cuisine. "
             if state:
@@ -175,7 +178,7 @@ with col2:
             full_prompt = f"{context}\n\nUser question: {user_question}\n\nProvide a helpful, informative response about Indian food:"
             
             with st.spinner("AI is thinking..."):
-                ai_response = query_huggingface_chat(full_prompt, current_api_key)
+                ai_response = query_huggingface_chat(full_prompt)
             
             # Add to chat history
             st.session_state.chat_history.append((user_question, ai_response))
@@ -197,17 +200,17 @@ with col5:
 with st.expander("📋 How to use this app"):
     st.write("""
     1. **Explore Regional Food**: Select a state to learn about its cuisine
-    2. **Get AI Help**: Add your Hugging Face API key and ask questions about:
+    2. **Get AI Help**: Ask questions about:
        - Recipe suggestions and cooking tips
        - Ingredient substitutions
        - Food pairing recommendations
        - Cultural context of dishes
     3. **Location-specific Info**: Enter your city for local restaurant recommendations
     
-    **Getting your API Key:**
-    - Visit https://huggingface.co/settings/tokens
-    - Create a free account and generate a new token
-    - Paste it in the sidebar to enable AI chat
+    **Setting up AI Chat:**
+    - The AI chat requires a Hugging Face API token stored in Streamlit secrets
+    - Add 'HF_API_KEY' to your app's secrets in Streamlit Cloud settings
+    - Get your free token from: https://huggingface.co/settings/tokens
     """)
 
 # Footer
